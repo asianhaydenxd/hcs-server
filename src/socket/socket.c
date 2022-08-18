@@ -2,57 +2,68 @@
 
 #include "socket.h"
 
-void startServing(int serverSocket, struct sockaddr_in address) {
-  int addressLength = sizeof(address);
+void startServing(int serverSocket, struct sockaddr_in serverAddress) {
+  int addressLength = sizeof(serverAddress);
 
-  fd_set fds;
-  int clientSockets[MAX_CLIENTS] = {0};
+  fd_set allSockets; // Contains sockets to server and all clients
+  int clientDescriptors[MAX_CLIENTS] = {0}; // Field of possible socket descriptors
 
-  char buffer[1024];
+  char buffer[BUFFER_SIZE];
 
   while(1) {
-    FD_ZERO(&fds);
-    FD_SET(serverSocket, &fds);
+    // Refresh allSockets container
+    FD_ZERO(&allSockets);
+    // Add serverSocket to allSockets
+    FD_SET(serverSocket, &allSockets);
 
-    int maxSocket = serverSocket;
-
+    // Check clientDescriptors slots
+    int maxDescriptor = serverSocket;
     for(int i = 0; i < MAX_CLIENTS; i++) {
-      if(clientSockets[i] > 0) FD_SET(clientSockets[i], &fds);
-      if(clientSockets[i] > maxSocket) maxSocket = clientSockets[i];
+      // Add socket descriptor to allSockets if valid
+      if(clientDescriptors[i] > 0) FD_SET(clientDescriptors[i], &allSockets);
+      // Find length required to encompass all sockets
+      if(clientDescriptors[i] > maxDescriptor) maxDescriptor = clientDescriptors[i];
     }
 
-    select(maxSocket + 1, &fds, NULL, NULL, NULL);
+    // Wait until info is received from a socket in allSockets
+    select(maxDescriptor + 1, &allSockets, NULL, NULL, NULL);
 
-    if(FD_ISSET(serverSocket, &fds)) {
-      int newSocket = accept(serverSocket, (struct sockaddr*)&address, (socklen_t*)&addressLength);
+    // Info received from serverSocket, meaning a socket was opened to it
+    if(FD_ISSET(serverSocket, &allSockets)) {
+      int newDescriptor = accept(serverSocket, (struct sockaddr*)&serverAddress, (socklen_t*)&addressLength);
 
-      printf("User %s:%d socket %d connected\n", inet_ntoa(address.sin_addr), ntohs(address.sin_port), newSocket);
+      printf("User %s:%d socket %d connected\n", inet_ntoa(serverAddress.sin_addr), ntohs(serverAddress.sin_port), newDescriptor);
 
-      send(newSocket, "Hello from the server!\n", 24, 0);
+      send(newDescriptor, "Hello from the server!\n", 24, 0);
 
+      // Find the first unoccupied slot in clientDescriptors
       for(int i = 0; i < MAX_CLIENTS; i++) {
-        if(clientSockets[i] == 0) {
-          clientSockets[i] = newSocket;
+        if(clientDescriptors[i] == 0) {
+          clientDescriptors[i] = newDescriptor;
           break;
         }
       }
     }
 
+    // Check for info received from sockets
     for(int i = 0; i < MAX_CLIENTS; i++) {
-      int sd = clientSockets[i];
+      int currentDescriptor = clientDescriptors[i];
 
-      if(FD_ISSET(sd, &fds)) {
-        int valread = read(sd, buffer, 1024);
+      // Check if info was received from this socket
+      if(FD_ISSET(currentDescriptor, &allSockets)) {
+        int packetValue = read(currentDescriptor, buffer, BUFFER_SIZE);
 
-        if(valread <= 0) {
-          getpeername(sd, (struct sockaddr*)&address, (socklen_t*)&addressLength);
-          printf("User %s:%d disconnected\n", inet_ntoa(address.sin_addr), ntohs(address.sin_port));
-          close(sd);
-          clientSockets[i] = 0;
+        if(packetValue <= 0) {
+          // Disconnect socket
+          getpeername(currentDescriptor, (struct sockaddr*)&serverAddress, (socklen_t*)&addressLength);
+          printf("User %s:%d disconnected\n", inet_ntoa(serverAddress.sin_addr), ntohs(serverAddress.sin_port));
+          close(currentDescriptor);
+          clientDescriptors[i] = 0;
         } else {
+          // Interpret received packet
           printf("Received smthn\n");
-          buffer[valread] = '\0';
-          send(sd, buffer, strlen(buffer), 0);
+          buffer[packetValue] = '\0';
+          send(currentDescriptor, buffer, strlen(buffer), 0);
         }
       }
     }
@@ -60,35 +71,43 @@ void startServing(int serverSocket, struct sockaddr_in address) {
 }
 
 int initializeServer(int port) {
-  int serverSocket = socket(AF_INET, SOCK_STREAM, 0);
+  // Open a socket and its descriptor
+  int serverDescriptor = socket(AF_INET, SOCK_STREAM, 0);
 
-  if(serverSocket == 0) {
+  if(serverDescriptor == 0) {
     perror("socket failed");
     return -1;
   }
 
+  // Set socket to allow multiple connections
   int opt = 1;
-  if (setsockopt(serverSocket, SOL_SOCKET, SO_REUSEADDR | SO_REUSEADDR, &opt, sizeof(opt))) {
+  int sockOptResult = setsockopt(serverDescriptor, SOL_SOCKET, SO_REUSEADDR, (char*)&opt, sizeof(opt));
+  if(sockOptResult < 0) {
     perror("setsockopt");
     return -1;
   }
 
-  struct sockaddr_in address;
-  address.sin_family = AF_INET;
-  address.sin_addr.s_addr = INADDR_ANY;
-  address.sin_port = htons(port);
+  // Initialize address and port of server
+  struct sockaddr_in serverAddress;
+  serverAddress.sin_family = AF_INET;
+  serverAddress.sin_addr.s_addr = INADDR_ANY;
+  serverAddress.sin_port = htons(port);
 
-  if (bind(serverSocket, (struct sockaddr *)&address, sizeof(address)) < 0) {
+  // Bind server to address and port
+  if(bind(serverDescriptor, (struct sockaddr *)&serverAddress, sizeof(serverAddress)) < 0) {
     perror("bind failed");
     return -1;
   }
 
-  if (listen(serverSocket, 3) < 0) {
+  // Prepare to accept connections on serverDescriptor
+  // Up to 3 connections will pend at a time
+  if(listen(serverDescriptor, 3) < 0) {
     perror("listen");
     return -1;
   }
 
-  startServing(serverSocket, address);
+  // Start accepting connections and packets
+  startServing(serverDescriptor, serverAddress);
 
   return 0;
 }
