@@ -12,6 +12,8 @@
 #include <netinet/in.h>
 #include <sys/time.h>
 
+#include "../packets/packets.h"
+
 #define MAX_CLIENTS 30
 #define BUFFER_SIZE 1025
 
