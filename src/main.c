@@ -1,5 +1,9 @@
 /* main.c */
 
-int main(void) { 
+#include "socket/socket.h"
+
+int main(void) {
+  initializeServer(8080);
+
   return 0;
 } 

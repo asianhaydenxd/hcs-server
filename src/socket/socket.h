@@ -12,6 +12,8 @@
 #include <netinet/in.h>
 #include <sys/time.h>
 
+#define MAX_CLIENTS 30
+
 // Initialize a server with a port and the computer's public IP
 int initializeServer(int port);
 
