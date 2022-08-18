@@ -61,7 +61,9 @@ void startServing(int serverSocket, struct sockaddr_in serverAddress) {
           clientDescriptors[i] = 0;
         } else {
           // Interpret received packet
-          printf("Received smthn\n");
+          struct Packet packet;
+          deserialize(buffer, &packet);
+          printf("User %s sends %s\n", packet.user, packet.data);
           buffer[packetValue] = '\0';
           send(currentDescriptor, buffer, strlen(buffer), 0);
         }
